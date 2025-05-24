@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @describe Search Dehashed database for leaked credentials and personal information
-# @arg command "Command to run (search, help)" [string] @default "search"
 # @arg query "Search query (e.g., 'email:user@domain.com', 'username:admin', 'domain:example.com')" [string]
+# @flag -h --help "Show help information"
 # @option -k --api-key "Dehashed API key (can also use DEHASHED_API_KEY env var)" [string]
 # @option -p --page "Page number for pagination" [int] @default "1"
 # @option -s --size "Number of results per page (max 10000)" [int] @default "100"
@@ -44,13 +44,13 @@ _argc_usage() {
     cat <<-'EOF'
 Search Dehashed database for leaked credentials and personal information
 
-USAGE: dehashed [OPTIONS] [COMMAND] [QUERY]
+USAGE: dehashed [OPTIONS] [QUERY]
 
 ARGS:
-  [COMMAND]  "Command to run (search, help)" [string] @default "search"
-  [QUERY]    "Search query (e.g., 'email:user@domain.com', 'username:admin', 'domain:example.com')" [string]
+  [QUERY]  "Search query (e.g., 'email:user@domain.com', 'username:admin', 'domain:example.com')" [string]
 
 OPTIONS:
+  -h, --help               "Show help information"
   -k, --api-key <API-KEY>  "Dehashed API key (can also use DEHASHED_API_KEY env var)" [string]
   -p, --page <PAGE>        "Page number for pagination" [int] @default "1"
   -s, --size <SIZE>        "Number of results per page (max 10000)" [int] @default "100"
@@ -63,7 +63,6 @@ OPTIONS:
       --no-header          "Don't display header information"
       --csv                "Output results in CSV format"
       --show-raw           "Include raw record data in output"
-  -h, --help               Print help
   -V, --version            Print version
 EOF
     exit
@@ -233,13 +232,9 @@ _argc_parse() {
         if [[ "${argc__positionals[0]:-}" == "help" ]] && [[ "${#argc__positionals[@]}" -eq 1 ]]; then
             _argc_usage
         fi
-        _argc_match_positionals 0 0
+        _argc_match_positionals 0
         local values_index values_size
         IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[0]:-}"
-        if [[ -n "$values_index" ]]; then
-            argc_command="${argc__positionals[values_index]}"
-        fi
-        IFS=: read -r values_index values_size <<<"${_argc_match_positionals_values[1]:-}"
         if [[ -n "$values_index" ]]; then
             argc_query="${argc__positionals[values_index]}"
         fi
@@ -479,63 +474,56 @@ make_request() {
 }
 
 show_help() {
-  local command="${1:-}"
 
   echo "$(bold_text "Dehashed API Client")"
   echo ""
 
-  if [ -z "$command" ] || [ "$command" = "help" ]; then
-    echo "$(bold_text "Description"):"
-    echo "  Search the Dehashed database for leaked credentials and personal information"
-    echo ""
-    echo "$(bold_text "Usage"):"
-    echo "  $(green "$(basename "$0") search <query>")"
-    echo "  $(green "$(basename "$0") help")"
-    echo ""
-    echo "$(bold_text "Commands"):"
-    echo "  $(cyan "search")        Search for leaked credentials (default command)"
-    echo "  $(cyan "help")          Show this help information"
-    echo ""
-    echo "$(bold_text "Examples"):"
-    echo "  $(green "$(basename "$0") search email:user@example.com")"
-    echo "  $(green "$(basename "$0") search username:admin")"
-    echo "  $(green "$(basename "$0") search domain:example.com")"
-    echo "  $(green "$(basename "$0") search ip_address:192.168.1.1")"
-    echo "  $(green "$(basename "$0") search \"name:John Doe\"")"
-    echo ""
-    echo "$(bold_text "Options"):"
-    echo "  $(yellow "-k, --api-key")     Dehashed API key"
-    echo "  $(yellow "-p, --page")        Page number for pagination"
-    echo "  $(yellow "-s, --size")        Number of results per page (max 10000)"
-    echo "  $(yellow "-f, --field")       Search specific field"
-    echo "  $(yellow "-r, --regex")       Enable regex search"
-    echo "  $(yellow "-w, --wildcard")    Enable wildcard search (use * for wildcards)"
-    echo "  $(yellow "--no-dedupe")       Disable deduplication of results"
-    echo "  $(yellow "-j, --json")        Output raw JSON response"
-    echo "  $(yellow "-q, --quiet")       Suppress colored output"
-    echo "  $(yellow "--no-header")       Don't display header information"
-    echo "  $(yellow "--csv")             Output results in CSV format"
-    echo "  $(yellow "--show-raw")        Include raw record data in output"
-    echo ""
-    echo "$(bold_text "Available Fields"):"
-    echo "  $(cyan "name")                Person's name"
-    echo "  $(cyan "email")               Email address"
-    echo "  $(cyan "username")            Username"
-    echo "  $(cyan "password")            Clear text password"
-    echo "  $(cyan "hashed_password")     Hashed password"
-    echo "  $(cyan "ip_address")          IP address"
-    echo "  $(cyan "phone")               Phone number"
-    echo "  $(cyan "address")             Physical address"
-    echo "  $(cyan "social")              Social security number"
-    echo "  $(cyan "domain")              Domain name"
-    echo "  $(cyan "vin")                 Vehicle identification number"
-    echo "  $(cyan "license_plate")       License plate number"
-    echo "  $(cyan "cryptocurrency_address") Cryptocurrency wallet address"
-    echo ""
-    echo "$(bold_text "Wildcard Examples"):"
-    echo "  $(green "$(basename "$0") search \"email:*@gmail.com\" --wildcard")"
-    echo "  $(green "$(basename "$0") search \"username:admin*\" --wildcard")"
-  fi
+  echo "$(bold_text "Description"):"
+  echo "  Search the Dehashed database for leaked credentials and personal information"
+  echo ""
+  echo "$(bold_text "Usage"):"
+  echo "  $(green "$(basename "$0") <query>")"
+  echo "  $(green "$(basename "$0") --help")"
+  echo ""
+  echo "$(bold_text "Examples"):"
+  echo "  $(green "$(basename "$0") email:user@example.com")"
+  echo "  $(green "$(basename "$0") username:admin")"
+  echo "  $(green "$(basename "$0") domain:example.com")"
+  echo "  $(green "$(basename "$0") ip_address:192.168.1.1")"
+  echo "  $(green "$(basename "$0") \"name:John Doe\"")"
+  echo ""
+  echo "$(bold_text "Options"):"
+  echo "  $(yellow "-k, --api-key")     Dehashed API key"
+  echo "  $(yellow "-p, --page")        Page number for pagination"
+  echo "  $(yellow "-s, --size")        Number of results per page (max 10000)"
+  echo "  $(yellow "-f, --field")       Search specific field"
+  echo "  $(yellow "-r, --regex")       Enable regex search"
+  echo "  $(yellow "-w, --wildcard")    Enable wildcard search (use * for wildcards)"
+  echo "  $(yellow "--no-dedupe")       Disable deduplication of results"
+  echo "  $(yellow "-j, --json")        Output raw JSON response"
+  echo "  $(yellow "-q, --quiet")       Suppress colored output"
+  echo "  $(yellow "--no-header")       Don't display header information"
+  echo "  $(yellow "--csv")             Output results in CSV format"
+  echo "  $(yellow "--show-raw")        Include raw record data in output"
+  echo ""
+  echo "$(bold_text "Available Fields"):"
+  echo "  $(cyan "name")                Person's name"
+  echo "  $(cyan "email")               Email address"
+  echo "  $(cyan "username")            Username"
+  echo "  $(cyan "password")            Clear text password"
+  echo "  $(cyan "hashed_password")     Hashed password"
+  echo "  $(cyan "ip_address")          IP address"
+  echo "  $(cyan "phone")               Phone number"
+  echo "  $(cyan "address")             Physical address"
+  echo "  $(cyan "social")              Social security number"
+  echo "  $(cyan "domain")              Domain name"
+  echo "  $(cyan "vin")                 Vehicle identification number"
+  echo "  $(cyan "license_plate")       License plate number"
+  echo "  $(cyan "cryptocurrency_address") Cryptocurrency wallet address"
+  echo ""
+  echo "$(bold_text "Wildcard Examples"):"
+  echo "  $(green "$(basename "$0") \"email:*@gmail.com\" --wildcard")"
+  echo "  $(green "$(basename "$0") \"username:admin*\" --wildcard")"
 }
 
 format_search_results() {
@@ -555,15 +543,15 @@ format_search_results() {
   if [ -z "$total" ] || [ "$total" = "null" ] || [ "$total" = "N/A" ]; then
     total=0
   fi
-  
+
   if [ "$total" -eq 0 ]; then
     printf "$(yellow "No results found for query: ${argc_query:-}")\n"
     return 0
   fi
 
   local tmp_file=$(mktemp)
-  echo "$response" | jq -c '.entries[]' > "$tmp_file"
-  
+  echo "$response" | jq -c '.entries[]' >"$tmp_file"
+
   while read -r entry; do
 
     id=$(echo "$entry" | jq -r '.id // "N/A"')
@@ -617,25 +605,25 @@ format_search_results() {
     fi
 
     printf "\n"
-  done < "$tmp_file"
-  
+  done <"$tmp_file"
+
   rm -f "$tmp_file"
 
   if [ -z "$total" ] || [ "$total" = "null" ] || [ "$total" = "N/A" ]; then
     total=0
   fi
-  
+
   size="${argc_size:-100}"
   if [ -z "$size" ] || [ "$size" = "null" ]; then
     size=100
   fi
-  
+
   if [ "${argc_quiet:-0}" != "1" ] && [ "$total" -gt "$size" ]; then
     page="${argc_page:-1}"
     if [ -z "$page" ] || [ "$page" = "null" ]; then
       page=1
     fi
-    
+
     current_end=$((page * size))
     if [ "$current_end" -gt "$total" ]; then
       current_end="$total"
@@ -753,15 +741,15 @@ do_search() {
 
   local total=$(echo "$response" | jq -r '.total // 0')
   local entries_count=$(echo "$response" | jq '.entries | length')
-  
+
   if [ -z "$total" ] || [ "$total" = "null" ] || [ "$total" = "N/A" ]; then
     total=0
   fi
-  
+
   if [ -z "$entries_count" ] || [ "$entries_count" = "null" ]; then
     entries_count=0
   fi
-  
+
   if [ "$total" -gt 0 ] && [ "$entries_count" -eq 0 ] && [ "${argc_quiet:-0}" != "1" ]; then
     printf "$(yellow "Warning"): API reported ${total} results but returned no entries\n"
   elif [ "$total" -eq 0 ] && [ "${argc_quiet:-0}" != "1" ]; then
@@ -776,16 +764,9 @@ do_search() {
   fi
 }
 
-case "${argc_command:-search}" in
-search)
-  do_search
-  ;;
-help)
-  show_help "${argc_query:-}"
-  ;;
-*)
-  printf "$(red "Error"): Unknown command: ${argc_command}\n" >&2
+if [ "${argc_help:-0}" = "1" ]; then
   show_help
-  exit 1
-  ;;
-esac
+  exit 0
+fi
+
+do_search
