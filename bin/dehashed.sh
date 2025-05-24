@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-source "$SCRIPT_DIR/lib/colors.sh"
-source "$SCRIPT_DIR/lib/config.sh"
-source "$SCRIPT_DIR/lib/format.sh"
-source "$SCRIPT_DIR/lib/help.sh"
-source "$SCRIPT_DIR/lib/api.sh"
-
 # @describe Search Dehashed database for leaked credentials and personal information
 # @arg command "Command to run (search, help)" [string] @default "search"
 # @arg query "Search query (e.g., 'email:user@domain.com', 'username:admin', 'domain:example.com')" [string]
@@ -386,10 +378,403 @@ _argc_die() {
 _argc_run "$@"
 
 # ARGC-BUILD }
+
 set -euo pipefail
 
+setup_colors() {
+  if [ "${argc_quiet:-0}" = 1 ] || [ -z "$TERM" ] || [ "$TERM" = "dumb" ]; then
+    bold="" reset="" blue="" green="" yellow="" cyan="" magenta="" red="" white=""
+  else
+    bold=$(tput bold) reset=$(tput sgr0) blue=$(tput setaf 4) green=$(tput setaf 2)
+    yellow=$(tput setaf 3) cyan=$(tput setaf 6) magenta=$(tput setaf 5) red=$(tput setaf 1)
+  fi
+}
 setup_colors
 
+# Color formatting functions
+bold_text() {
+  printf "${bold}%s${reset}" "$1"
+}
+
+red() {
+  printf "${red}%s${reset}" "$1"
+}
+
+green() {
+  printf "${green}%s${reset}" "$1"
+}
+
+yellow() {
+  printf "${yellow}%s${reset}" "$1"
+}
+
+blue() {
+  printf "${blue}%s${reset}" "$1"
+}
+
+cyan() {
+  printf "${cyan}%s${reset}" "$1"
+}
+
+magenta() {
+  printf "${magenta}%s${reset}" "$1"
+}
+
+print_kv() {
+  printf "$(bold_text "$1"): %s\n" "$2"
+}
+
+print_section() {
+  printf "\n$(bold_text "$1"):\n"
+}
+
+format_case() {
+  echo "$(tr '[:lower:]' '[:upper:]' <<<${1:0:1})${1:1}"
+}
+
+get_api_key() {
+  local key=""
+
+  if [ -n "${argc_api_key:-}" ]; then
+    key="$argc_api_key"
+  elif [ -n "${DEHASHED_API_KEY:-}" ]; then
+    key="$DEHASHED_API_KEY"
+  elif [ -f "$HOME/.config/dehashed/api_key" ]; then
+    key=$(cat "$HOME/.config/dehashed/api_key")
+  fi
+
+  if [ -n "$key" ]; then
+    echo "$key"
+  else
+    printf "$(red "Error"): No Dehashed API key found.\n" >&2
+    printf "Please provide your API key using one of these methods:\n" >&2
+    printf "  1. Pass it with $(yellow "--api-key")\n" >&2
+    printf "  2. Set $(yellow "DEHASHED_API_KEY") environment variable\n" >&2
+    printf "  3. Save it to $(yellow "~/.config/dehashed/api_key")\n" >&2
+    exit 1
+  fi
+}
+
+make_request() {
+  local api_key="$1"
+  local json_payload="$2"
+  local response=$(curl -s -X POST 'https://api.dehashed.com/v2/search' \
+    --header "Dehashed-Api-Key: $api_key" \
+    --header 'Content-Type: application/json' \
+    --data-raw "$json_payload")
+
+  if ! echo "$response" | jq -e . >/dev/null 2>&1; then
+    printf "$(red "Error"): Invalid JSON response from API\n" >&2
+    printf "Response: %s\n" "$response" >&2
+    exit 1
+  fi
+
+  if echo "$response" | jq -e '.error' >/dev/null 2>&1; then
+    error_msg=$(echo "$response" | jq -r '.error // .message // "Unknown error"')
+    printf "$(red "API Error"): %s\n" "$error_msg" >&2
+    exit 1
+  fi
+
+  echo "$response"
+}
+
+show_help() {
+  local command="${1:-}"
+
+  echo "$(bold_text "Dehashed API Client")"
+  echo ""
+
+  if [ -z "$command" ] || [ "$command" = "help" ]; then
+    echo "$(bold_text "Description"):"
+    echo "  Search the Dehashed database for leaked credentials and personal information"
+    echo ""
+    echo "$(bold_text "Usage"):"
+    echo "  $(green "$(basename "$0") search <query>")"
+    echo "  $(green "$(basename "$0") help")"
+    echo ""
+    echo "$(bold_text "Commands"):"
+    echo "  $(cyan "search")        Search for leaked credentials (default command)"
+    echo "  $(cyan "help")          Show this help information"
+    echo ""
+    echo "$(bold_text "Examples"):"
+    echo "  $(green "$(basename "$0") search email:user@example.com")"
+    echo "  $(green "$(basename "$0") search username:admin")"
+    echo "  $(green "$(basename "$0") search domain:example.com")"
+    echo "  $(green "$(basename "$0") search ip_address:192.168.1.1")"
+    echo "  $(green "$(basename "$0") search \"name:John Doe\"")"
+    echo ""
+    echo "$(bold_text "Options"):"
+    echo "  $(yellow "-k, --api-key")     Dehashed API key"
+    echo "  $(yellow "-p, --page")        Page number for pagination"
+    echo "  $(yellow "-s, --size")        Number of results per page (max 10000)"
+    echo "  $(yellow "-f, --field")       Search specific field"
+    echo "  $(yellow "-r, --regex")       Enable regex search"
+    echo "  $(yellow "-w, --wildcard")    Enable wildcard search (use * for wildcards)"
+    echo "  $(yellow "--no-dedupe")       Disable deduplication of results"
+    echo "  $(yellow "-j, --json")        Output raw JSON response"
+    echo "  $(yellow "-q, --quiet")       Suppress colored output"
+    echo "  $(yellow "--no-header")       Don't display header information"
+    echo "  $(yellow "--csv")             Output results in CSV format"
+    echo "  $(yellow "--show-raw")        Include raw record data in output"
+    echo ""
+    echo "$(bold_text "Available Fields"):"
+    echo "  $(cyan "name")                Person's name"
+    echo "  $(cyan "email")               Email address"
+    echo "  $(cyan "username")            Username"
+    echo "  $(cyan "password")            Clear text password"
+    echo "  $(cyan "hashed_password")     Hashed password"
+    echo "  $(cyan "ip_address")          IP address"
+    echo "  $(cyan "phone")               Phone number"
+    echo "  $(cyan "address")             Physical address"
+    echo "  $(cyan "social")              Social security number"
+    echo "  $(cyan "domain")              Domain name"
+    echo "  $(cyan "vin")                 Vehicle identification number"
+    echo "  $(cyan "license_plate")       License plate number"
+    echo "  $(cyan "cryptocurrency_address") Cryptocurrency wallet address"
+    echo ""
+    echo "$(bold_text "Wildcard Examples"):"
+    echo "  $(green "$(basename "$0") search \"email:*@gmail.com\" --wildcard")"
+    echo "  $(green "$(basename "$0") search \"username:admin*\" --wildcard")"
+  fi
+}
+
+format_search_results() {
+  local response="$1"
+  local balance=$(echo "$response" | jq -r '.balance // "N/A"')
+  local total=$(echo "$response" | jq -r '.total // 0')
+  local took=$(echo "$response" | jq -r '.took // "N/A"')
+
+  if [ "${argc_no_header:-0}" != "1" ] && [ "${argc_quiet:-0}" != "1" ]; then
+    printf "$(bold_text "$(green "=== Dehashed Search Results ===")")\n"
+    printf "$(yellow "Balance"): %s credits\n" "$balance"
+    printf "$(yellow "Total Results"): %s\n" "$total"
+    printf "$(yellow "Query Time"): %s\n" "$took"
+    printf "\n"
+  fi
+
+  if [ -z "$total" ] || [ "$total" = "null" ] || [ "$total" = "N/A" ]; then
+    total=0
+  fi
+  
+  if [ "$total" -eq 0 ]; then
+    printf "$(yellow "No results found for query: ${argc_query:-}")\n"
+    return 0
+  fi
+
+  local tmp_file=$(mktemp)
+  echo "$response" | jq -c '.entries[]' > "$tmp_file"
+  
+  while read -r entry; do
+
+    id=$(echo "$entry" | jq -r '.id // "N/A"')
+    database_name=$(echo "$entry" | jq -r '.database_name // "N/A"')
+
+    printf "$(yellow "ID"): %s\n" "$id"
+    printf "$(yellow "Database"): %s\n" "$database_name"
+
+    fields=("email" "username" "name" "password" "hashed_password" "ip_address" "phone" "address" "social" "cryptocurrency_address" "license_plate" "vin" "dob" "company" "url")
+
+    for field in "${fields[@]}"; do
+      values=$(echo "$entry" | jq -r --arg field "$field" '
+        if has($field) then
+          if .[$field] | type == "array" then 
+            .[$field] | if length > 0 then join(", ") else empty end
+          elif .[$field] | type == "string" then
+            if .[$field] == "" then empty else .[$field] end
+          elif .[$field] | type == "number" then
+            .[$field] | tostring
+          else
+            .[$field] | tostring
+          end
+        else
+          empty
+        end')
+
+      if [ -n "$values" ]; then
+        formatted_field=$(echo "$field" | tr '_' ' ' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2))}1')
+        case "$field" in
+        "password" | "hashed_password")
+          printf "$(yellow "$formatted_field"): $(red "$values")\n"
+          ;;
+        "email" | "username")
+          printf "$(yellow "$formatted_field"): $(blue "$values")\n"
+          ;;
+        "ip_address" | "cryptocurrency_address")
+          printf "$(yellow "$formatted_field"): $(magenta "$values")\n"
+          ;;
+        *)
+          printf "$(yellow "$formatted_field"): %s\n" "$values"
+          ;;
+        esac
+      fi
+    done
+
+    if [ "${argc_show_raw:-0}" = "1" ]; then
+      if echo "$entry" | jq 'has("raw_record")' | grep -q "true"; then
+        printf "$(yellow "Raw Record"):\n"
+        echo "$entry" | jq '.raw_record' | sed 's/^/  /'
+      fi
+    fi
+
+    printf "\n"
+  done < "$tmp_file"
+  
+  rm -f "$tmp_file"
+
+  if [ -z "$total" ] || [ "$total" = "null" ] || [ "$total" = "N/A" ]; then
+    total=0
+  fi
+  
+  size="${argc_size:-100}"
+  if [ -z "$size" ] || [ "$size" = "null" ]; then
+    size=100
+  fi
+  
+  if [ "${argc_quiet:-0}" != "1" ] && [ "$total" -gt "$size" ]; then
+    page="${argc_page:-1}"
+    if [ -z "$page" ] || [ "$page" = "null" ]; then
+      page=1
+    fi
+    
+    current_end=$((page * size))
+    if [ "$current_end" -gt "$total" ]; then
+      current_end="$total"
+    fi
+    current_start=$(((page - 1) * size + 1))
+
+    printf "$(bold_text "$(yellow "Showing results $current_start-$current_end of $total")")\n"
+
+    if [ "$current_end" -lt "$total" ]; then
+      next_page=$((page + 1))
+      printf "$(cyan "To see more results, use: --page $next_page")\n"
+    fi
+  fi
+}
+
+generate_csv() {
+  local response="$1"
+  printf "id,database_name,email,username,name,password,hashed_password,ip_address,phone,address,social,cryptocurrency_address,license_plate,vin,dob,company,url\n"
+  echo "$response" | jq -r '.entries[] |
+    [
+      .id,
+      .database_name,
+      (.email // [] | join(";")),
+      (.username // [] | join(";")),
+      (.name // [] | join(";")),
+      (.password // [] | join(";")),
+      (.hashed_password // [] | join(";")),
+      (.ip_address // [] | join(";")),
+      (.phone // [] | join(";")),
+      (.address // [] | join(";")),
+      (.social // [] | join(";")),
+      (.cryptocurrency_address // [] | join(";")),
+      (.license_plate // [] | join(";")),
+      (.vin // [] | join(";")),
+      (.dob // [] | join(";")),
+      (.company // [] | join(";")),
+      (.url // [] | join(";"))
+    ] | @csv'
+}
+
+show_examples() {
+  printf "\n$(bold_text "$(yellow "Example queries"):"):\n"
+  printf "  $(cyan "email:user@example.com")         # Search by email\n"
+  printf "  $(cyan "username:admin")                 # Search by username\n"
+  printf "  $(cyan "domain:example.com")             # Search by domain\n"
+  printf "  $(cyan "ip_address:192.168.1.1")         # Search by IP\n"
+  printf "  $(cyan "name:\"John Doe\"")                # Search by name (quoted for spaces)\n"
+  printf "  $(cyan "password:123456")                # Search by password\n"
+  printf "\n$(bold_text "$(yellow "Wildcard examples"):"):\n"
+  printf "  $(cyan "email:*@gmail.com --wildcard")   # All Gmail addresses\n"
+  printf "  $(cyan "username:admin* --wildcard")     # Usernames starting with 'admin'\n"
+}
+
+do_search() {
+  local api_key=$(get_api_key)
+
+  if [ "${argc_size:-100}" -gt 10000 ]; then
+    printf "$(red "Error"): Size parameter cannot exceed 10000\n" >&2
+    exit 1
+  fi
+
+  local query="${argc_query:-}"
+  if [ -z "$query" ]; then
+    printf "$(red "Error"): Search query is required\n" >&2
+    show_help
+    exit 1
+  fi
+
+  if [ -n "${argc_field:-}" ]; then
+    if [[ "$query" == *":"* ]]; then
+      printf "$(yellow "Warning"): Field specified via --field but query already contains field syntax\n" >&2
+    else
+      query="${argc_field}:${query}"
+    fi
+  fi
+
+  local json_payload=$(jq -n \
+    --arg query "$query" \
+    --arg page "${argc_page:-1}" \
+    --arg size "${argc_size:-100}" \
+    --argjson regex "$([ "${argc_regex:-0}" = "1" ] && echo true || echo false)" \
+    --argjson wildcard "$([ "${argc_wildcard:-0}" = "1" ] && echo true || echo false)" \
+    --argjson dedupe "$([ "${argc_no_dedupe:-0}" = "1" ] && echo false || echo true)" \
+    '{
+      query: $query,
+      page: ($page | tonumber),
+      size: ($size | tonumber),
+      regex: $regex,
+      wildcard: $wildcard,
+      de_dupe: $dedupe
+    }')
+
+  if [ "${argc_quiet:-0}" != "1" ]; then
+    printf "$(bold_text "$(cyan "Searching Dehashed database...")")\n"
+    printf "$(yellow "Query"): %s\n" "$query"
+    printf "$(yellow "Page"): %s, $(yellow "Size"): %s\n" "${argc_page:-1}" "${argc_size:-10000}"
+    if [ "${argc_regex:-0}" = "1" ]; then printf "$(yellow "Regex"): enabled\n"; fi
+    if [ "${argc_wildcard:-0}" = "1" ]; then printf "$(yellow "Wildcard"): enabled\n"; fi
+    printf "\n"
+  fi
+
+  local response=$(make_request "$api_key" "$json_payload")
+
+  if [ "${argc_json:-0}" = "1" ]; then
+    echo "$response" | jq
+    exit 0
+  fi
+
+  if [ "${argc_csv:-0}" = "1" ]; then
+    generate_csv "$response"
+    exit 0
+  fi
+
+  format_search_results "$response"
+
+  local total=$(echo "$response" | jq -r '.total // 0')
+  local entries_count=$(echo "$response" | jq '.entries | length')
+  
+  if [ -z "$total" ] || [ "$total" = "null" ] || [ "$total" = "N/A" ]; then
+    total=0
+  fi
+  
+  if [ -z "$entries_count" ] || [ "$entries_count" = "null" ]; then
+    entries_count=0
+  fi
+  
+  if [ "$total" -gt 0 ] && [ "$entries_count" -eq 0 ] && [ "${argc_quiet:-0}" != "1" ]; then
+    printf "$(yellow "Warning"): API reported ${total} results but returned no entries\n"
+  elif [ "$total" -eq 0 ] && [ "${argc_quiet:-0}" != "1" ]; then
+    show_examples
+  fi
+
+  if [ "${argc_quiet:-0}" != "1" ]; then
+    local remaining=$(echo "$response" | jq -r '.remaining_requests // "N/A"')
+    if [ "$remaining" != "N/A" ] && [ "$remaining" != "null" ]; then
+      printf "\n$(bold_text "$(yellow "API Rate Limit")"): ${remaining} requests remaining\n"
+    fi
+  fi
+}
 
 case "${argc_command:-search}" in
 search)
