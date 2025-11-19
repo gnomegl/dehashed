@@ -178,7 +178,7 @@ format_search_results() {
   local took=$(echo "$response" | jq -r '.took // "N/A"')
 
   if [ "${argc_no_header:-0}" != "1" ] && [ "${argc_quiet:-0}" != "1" ]; then
-    printf "$(bold_text "$(green "=== Dehashed Search Results ===")")\n"
+    printf "$(bold_text "$(green "Dehashed Search Results")")\n"
     printf "$(yellow "Balance"): %s credits\n" "$balance"
     printf "$(yellow "Total Results"): %s\n" "$total"
     printf "$(yellow "Query Time"): %s\n" "$took"
